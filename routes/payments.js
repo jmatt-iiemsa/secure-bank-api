@@ -2,6 +2,7 @@
 import express from "express";
 import asyncHandler from "express-async-handler";
 import Payment from "../models/Payment.js";
+import Customer from "../models/Customer.js";
 import { authenticateJWT, authorizeRole } from "../middleware/auth.js";
 import { validatePaymentBody } from "../middleware/validation.js";
 
@@ -9,25 +10,73 @@ const router = express.Router();
 
 // Customer creates a payment
 router.post("/", authenticateJWT, asyncHandler(async (req, res) => {
-  if (!req.user || req.user.role !== "customer") return res.status(403).json({ message: "Only customers can create payments" });
+  try {
+    console.log('Payment request received:', req.body);
+    console.log('User:', req.user);
+    
+    if (!req.user || req.user.role !== "customer") {
+      return res.status(403).json({ message: "Only customers can create payments" });
+    }
 
-  // Manual validation since middleware isn't working properly
-  const { amount, currency, provider, swiftCode, recipientAccount } = req.body;
-  
-  if (!amount || !currency || !provider || !swiftCode || !recipientAccount) {
-    return res.status(400).json({ message: "All fields are required" });
+    // Manual validation since middleware isn't working properly
+    const { amount, currency, provider, swiftCode, recipientAccount } = req.body;
+    
+    if (!amount || !currency || !provider || !swiftCode || !recipientAccount) {
+      return res.status(400).json({ message: "All fields are required" });
+    }
+
+    // Check if customer has sufficient balance
+    const customer = await Customer.findById(req.user.sub);
+    if (!customer) {
+      console.log('Customer not found for ID:', req.user.sub);
+      return res.status(404).json({ message: "Customer not found" });
+    }
+    
+    console.log('Customer found:', customer.fullName, 'Balance:', customer.AccountBalance);
+    
+    // Initialize AccountBalance if not set
+    if (customer.AccountBalance === undefined || customer.AccountBalance === null) {
+      await Customer.findByIdAndUpdate(req.user.sub, { AccountBalance: 25000.00 });
+      customer.AccountBalance = 25000.00;
+      console.log('Initialized balance to 25000');
+    }
+    
+    // Convert amount to ZAR if needed (simplified exchange rates)
+    const exchangeRates = {
+      ZAR: 1,
+      USD: 18.5,
+      EUR: 20.2,
+      GBP: 23.1
+    };
+    
+    const amountInZAR = parseFloat(amount) * (exchangeRates[currency.toUpperCase()] || 1);
+    console.log('Amount in ZAR:', amountInZAR, 'Original:', amount, 'Currency:', currency);
+    
+    if (customer.AccountBalance < amountInZAR) {
+      return res.status(400).json({ message: "Insufficient balance" });
+    }
+
+    // Deduct converted amount from customer balance
+    const newBalance = customer.AccountBalance - amountInZAR;
+    await Customer.findByIdAndUpdate(req.user.sub, { AccountBalance: newBalance });
+    console.log('New balance after deduction:', newBalance);
+
+    const p = new Payment({
+      customerId: req.user.sub,
+      amount,
+      currency,
+      provider,
+      recipientAccount,
+      swiftCode
+    });
+    await p.save();
+    console.log('Payment saved:', p._id);
+    
+    return res.status(201).json({ message: "Payment submitted", paymentId: p._id });
+  } catch (error) {
+    console.error('Payment processing error:', error);
+    return res.status(500).json({ message: "Payment processing failed", error: error.message });
   }
-
-  const p = new Payment({
-    customerId: req.user.sub,
-    amount,
-    currency,
-    provider,
-    recipientAccount,
-    swiftCode
-  });
-  await p.save();
-  return res.status(201).json({ message: "Payment submitted", paymentId: p._id });
 }));
 
 // Customer gets their payments

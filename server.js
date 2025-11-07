@@ -12,6 +12,7 @@ import dotenv from "dotenv";
 import { connectDB } from "./db/conn.js";
 import authRoutes from "./routes/auth.js";
 import paymentRoutes from "./routes/payments.js";
+import accountRoutes from "./routes/accounts.js";
 import mongoSanitize from "express-mongo-sanitize";
 import xss from "xss-clean";
 
@@ -41,6 +42,7 @@ app.use(xss()); // XSS protection
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/payments", paymentRoutes);
+app.use("/api/accounts", accountRoutes);
 // ✅ Rate limiting: prevent DDoS or brute force attacks
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
